@@ -1,0 +1,13 @@
+{
+    "name": "henrist/openldapauth",
+    "description": "OpenLDAP-authentication for Laravel 4",
+    "authors": [
+        {
+            "name": "Henrik Steen",
+            "email": "henrist@henrist.net"
+        }
+    ],
+    "require": {
+		"php": ">=5.3.0"
+    }
+}
