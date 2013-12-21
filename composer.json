@@ -7,6 +7,11 @@
             "email": "henrist@henrist.net"
         }
     ],
+    "autoload": {
+        "psr-0": {
+            "HenriSt\\OpenLdapAuth": "src/"
+        }
+    },
     "require": {
 		"php": ">=5.3.0"
     }
