@@ -1,6 +1,7 @@
 {
     "name": "henrist/openldapauth",
     "description": "OpenLDAP-authentication for Laravel 4",
+	"license": "MIT",
     "authors": [
         {
             "name": "Henrik Steen",
