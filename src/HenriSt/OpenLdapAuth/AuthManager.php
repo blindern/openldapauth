@@ -1,7 +1,7 @@
 <?php namespace HenriSt\OpenLdapAuth;
 
 use Illuminate\Support\Manager;
-use Illuminate\Auth\Guard;
+#use Illuminate\Auth\Guard;
 use HenriSt\OpenLdapAuth\Helpers\Ldap;
 
 class AuthManager extends Manager {

@@ -14,7 +14,7 @@ class Ldap {
 	/**
 	 * Configuration
 	 */
-	protected $config;
+	public $config;
 
 	/**
 	 * Initializer
@@ -93,6 +93,7 @@ class Ldap {
 			// map fields
 			$data = array();
 			foreach ($this->config['user_fields'] as $from => $to) {
+				$to = strtolower($to); // ldap_get_entries makes attributes lowercase
 				if (isset($info[0][$to]))
 				{
 					// NOTE: Only allowes for one value, there may be many
@@ -117,26 +118,158 @@ class Ldap {
 	{
 		$this->connect();
 
-		$check = sprintf("(&(memberUid=%s)(objectclass=posixGroup))", $this->escape_string($user));
-		$fields = array("dn", "cn", "description", "gidNumber");
-		
-		$result = ldap_search($this->conn, $this->config['group_dn'], $check, $fields);
-		$entires = ldap_get_entries($this->conn, $result);
+		$search_by = sprintf('(%s=%s)', $this->config['group_fields']['members'], static::escape_string($user));
+		return $this->get_groups(false, $search_by);
+	}
 
-		/*$groups = array();
-		$groups_sort = array();
-		for ($i = 0; $i < $entries['count']; $i++)
+	/**
+	 * Get connection
+	 * @return LDAP-connection
+	 */
+	public function get_connection()
+	{
+		return $this->conn;
+	}
+
+	/**
+	 * Get info about users (all by default)
+	 * Sorts the list by realnames
+	 *
+	 * @param string $search_by LDAP-string for searching, eg. (uid=*), defaults to all users
+	 * @param array $extra_fields
+	 * @return array of users
+	 */
+	public function get_users($search_by = null, $extra_fields = array())
+	{
+		$this->connect();
+
+		// handle search by
+		$search_by = empty($search_by) ? '(uid=*)' : $search_by;
+
+		// handle fields
+		$fields = array(
+			$this->config['user_fields']['unique_id'],
+			$this->config['user_fields']['id'],
+			$this->config['user_fields']['username'],
+			$this->config['user_fields']['realname'],
+			$this->config['user_fields']['email']
+		);
+		if (!empty($extra_fields))
 		{
-			$groups_sort[] = strtolower($entries[$i]['cn'][0]);
-			$groups[] = array("Ldapgroup", $entries[$i]['cn'][0]);
+			if (!is_array($extra_fields))
+			{
+				throw new Exception("Extra fields is not an array.");
+			}
+
+			$fields = array_merge($fields, $extra_fields);
 		}
-		array_multisort($groups_sort, $groups);*/
+
+		// retrieve info from LDAP
+		$r = ldap_search($this->conn, $this->config['user_dn'], $search_by, $fields);
+		$e = ldap_get_entries($this->conn, $r);
+
+		// ldap_get_entries makes attributes lowercase
+		$user_fields = $this->config['user_fields'];
+		foreach ($user_fields as &$field)
+		{
+			$field = strtolower($field);
+		}
+
+		$users = array();
+		$users_names = array();
+		for ($i = 0; $i < $e['count']; $i++) {
+			$users[$e[$i][$user_fields['unique_id']][0]] = array(
+				"id" => $e[$i][$user_fields['id']][0],
+				"username" => $e[$i][$user_fields['username']][0],
+				"realname" => $e[$i][$user_fields['realname']][0],
+				"email" => isset($e[$i][$user_fields['email']][0]) ? $e[$i]['mail'][0] : null,
+				#"groups" => array()
+			);
+			$users_names[] = strtolower($e[$i][$user_fields['realname']][0]);
+		}
+
+		// sort by realname
+		array_multisort($users_names, $users);
+
+		return $users;
+	}
+
+	/**
+	 * Get groups list
+	 * Sorts the list by group names
+	 *
+	 * @param bool $get_members Create list of members
+	 * @param string $search_by LDAP-string for searching, defaults to all groups
+	 * @return array
+	 */
+	public function get_groups($get_members = true, $search_by = null)
+	{
+		$this->connect();
+
+		// handle search by
+		$s = '(objectClass=posixGroup)';
+		if (!empty($search_by))
+		{
+			$s = sprintf('(&%s%s)', $s, $search_by);
+		}
+
+		$fields = array(
+			$this->config['group_fields']['unique_id'],
+			$this->config['group_fields']['id'],
+			$this->config['group_fields']['name']
+		);
+		if ($get_members)
+		{
+			$fields[] = $this->config['group_fields']['members'];
+		}
+
+		// retrieve info from LDAP
+		$r = ldap_search($this->conn, $this->config['group_dn'], $s, $fields);
+		$e = ldap_get_entries($this->conn, $r);
+
+		// ldap_get_entries makes attributes lowercase
+		$group_fields = $this->config['group_fields'];
+		foreach ($group_fields as &$field)
+		{
+			$field = strtolower($field);
+		}
 
 		$groups = array();
-		for ($i = 0; $i < $entries['count']; $i++)
+		$groups_names = array();
+		for ($i = 0; $i < $e['count']; $i++)
 		{
-			$groups[] = $entries[$i]['cn'][0];
+			// skip some groups
+			if (in_array($e[$i][$group_fields['unique_id']][0], $this->config['groups_ignore']))
+			{
+				continue;
+			}
+
+			$group = array(
+				"unique_id" => $e[$i][$group_fields['unique_id']][0],
+				"id" => $e[$i][$group_fields['id']][0],
+				"name" => $e[$i][$group_fields['name']][0]
+			);
+
+			if ($get_members)
+			{
+				$group['members'] = array();
+				$mf = $group_fields['members'];
+				if (!empty($e[$i][$mf]))
+				{
+					for ($j = 0; $j < $e[$i][$mf]['count']; $j++)
+					{
+						$uid = $e[$i][$mf][$j];
+						$group['members'][] = $uid;
+					}
+				}
+			}
+
+			$groups[$group['unique_id']] = $group;
+			$groups_names[] = $group['name'];
 		}
+
+		// sort by name
+		array_multisort($groups_names, $groups);
 
 		return $groups;
 	}
@@ -151,7 +284,7 @@ class Ldap {
 	 * @return string
 	 * @access private
 	 */
-	protected static function escape_string($string)
+	public static function escape_string($string)
 	{
 		// Make the string LDAP compliant by escaping *, (, ) , \ & NUL
 		return str_replace(
@@ -161,3 +294,5 @@ class Ldap {
 			);
 	}
 }
+
+class LdapException extends \Exception {}

@@ -19,6 +19,13 @@ class LdapUser implements Auth\UserInterface {
 	protected $attributes;
 
 	/**
+	 * Group list
+	 *
+	 * @var array
+	 */
+	protected $groups;
+
+	/**
 	 * Create a new generic User object.
 	 *
 	 * @param  array  $attributes
@@ -50,6 +57,45 @@ class LdapUser implements Auth\UserInterface {
 		// Not available
 		return null;
 		//return $this->attributes['password'];
+	}
+
+	/**
+	 * Get user groups
+	 *
+	 * @param boolean $refresh Reload cache?
+	 * @return array of groups
+	 */
+	public function groups($refresh = false)
+	{
+		if ($refresh || is_null($this->groups))
+		{
+			$this->groups = $this->ldap->get_user_groups($this->username);
+		}
+		
+		return $this->groups;
+	}
+
+	/**
+	 * Check if user is in a group
+	 *
+	 * @param string $group Name of group
+	 * @param boolean $superadmin Allow superadmin (in group if superadmin)
+	 * @return boolean
+	 */
+	public function in_group($group, $allow_superadmin = true)
+	{
+		$groups = $this->groups();
+
+		$allow_superadmin = $allow_superadmin ? $this->ldap->config['superadmin_group'] : null;
+		foreach ($groups as $row)
+		{
+			if ($row['name'] == $group || $row['name'] == $allow_superadmin)
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
