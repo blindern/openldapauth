@@ -23,12 +23,8 @@ class LdapUser implements Auth\UserInterface {
 	public static function find($username)
 	{
 		static::init();
-
-		$user = static::$ldap_s->get_user_details($username);
-		if (!is_null($user))
-		{
-			return new static($user, static::$ldap_s);
-		}
+		$users = static::$ldap_s->get_users_by_usernames(array($username));
+		if ($users[0]) return $users[0];
 	}
 
 	/**
@@ -40,13 +36,8 @@ class LdapUser implements Auth\UserInterface {
 	{
 		static::init();
 
-		$data = static::$ldap_s->get_users();
-		$users = array();
-		foreach ($data as $user)
-		{
-			$users[] = new static($user, static::$ldap_s);
-		}
-
+		$users = static::$ldap_s->get_users();
+		
 		// get groups?
 		if ($get_groups)
 		{

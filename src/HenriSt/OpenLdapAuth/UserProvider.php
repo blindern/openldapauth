@@ -30,10 +30,10 @@ class UserProvider implements Auth\UserProviderInterface {
 	 */
 	public function retrieveById($identifier)
 	{
-		$user = $this->ldap->get_user_details($identifier);
-		if (!is_null($user))
+		$users = $this->ldap->get_users_by_usernames(array($identifier));
+		if ($users)
 		{
-			return new LdapUser($user, $this->ldap);
+			return $users[0];
 		}
 	}
 
@@ -47,19 +47,11 @@ class UserProvider implements Auth\UserProviderInterface {
 	{
 		// TODO: check by other credentials
 
-		$user = $this->ldap->get_user_details($credentials['username']);
-		if (!is_null($user))
-		{
-			return new LdapUser($user, $this->ldap);
-		}
-
-/*
 		$user = $this->retrieveById($credentials['username']);
 		if (!is_null($user))
 		{
 			return $user;
-			//return new LdapUser($user, $this->ldap);
-		}*/
+		}
 	}
 
 	/**

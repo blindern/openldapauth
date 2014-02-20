@@ -1,5 +1,7 @@
 <?php namespace HenriSt\OpenLdapAuth\Helpers;
 
+use HenriSt\OpenLdapAuth\LdapUser;
+
 class Ldap {
 	/**
 	 * LDAP-connection
@@ -82,31 +84,29 @@ class Ldap {
 	 */
 	public function get_user_details($user)
 	{
-		$this->connect();
-		$fields = array_values($this->config['user_fields']);
-
-		$entry = @ldap_read($this->conn, $this->get_bind_dn($user), 'objectClass=*', $fields);
-		$info = @ldap_get_entries($this->conn, $entry);
-
-		if ($info['count'] > 0)
+		throw new LdapException("Not to be used.");
+		$result = $this->get_users_by_usernames(array($user));
+		if ($result)
 		{
-			// map fields
-			$data = array();
-			foreach ($this->config['user_fields'] as $from => $to) {
-				$to = strtolower($to); // ldap_get_entries makes attributes lowercase
-				if (isset($info[0][$to]))
-				{
-					// NOTE: Only allowes for one value, there may be many
-					$data[$from] = $info[0][$to][0];
-				}
-				else
-				{
-					$data[$from] = null;
-				}
-			}
-
-			return $data;
+			return $result[0];
 		}
+	}
+
+	/**
+	 * Get details about a user collection
+	 * @param array list of usernames
+	 * @return array(array|null user, ..)
+	 */
+	public function get_users_by_usernames(array $users, $extra_fields = array())
+	{
+		$list = array();
+		foreach ($users as $user)
+		{
+			$list[] = sprintf('(%s=%s)', $this->config['user_fields']['unique_id'], Ldap::escape_string($user));
+		}
+		$filter = sprintf('(|%s)', implode("", $list));
+
+		return $this->get_users($filter, $extra_fields);
 	}
 
 	/**
@@ -137,7 +137,7 @@ class Ldap {
 	 *
 	 * @param string $search_by LDAP-string for searching, eg. (uid=*), defaults to all users
 	 * @param array $extra_fields
-	 * @return array of users
+	 * @return array of LdapUser
 	 */
 	public function get_users($search_by = null, $extra_fields = array())
 	{
@@ -147,13 +147,8 @@ class Ldap {
 		$search_by = empty($search_by) ? '(uid=*)' : $search_by;
 
 		// handle fields
-		$fields = array(
-			$this->config['user_fields']['unique_id'],
-			$this->config['user_fields']['id'],
-			$this->config['user_fields']['username'],
-			$this->config['user_fields']['realname'],
-			$this->config['user_fields']['email']
-		);
+		$user_fields = $this->config['user_fields'];
+		$fields = array_values($user_fields);
 		if (!empty($extra_fields))
 		{
 			if (!is_array($extra_fields))
@@ -162,6 +157,10 @@ class Ldap {
 			}
 
 			$fields = array_merge($fields, $extra_fields);
+			foreach ($extra_fields as $field)
+			{
+				$user_fields[$field] = $field;
+			}
 		}
 
 		// retrieve info from LDAP
@@ -169,7 +168,6 @@ class Ldap {
 		$e = ldap_get_entries($this->conn, $r);
 
 		// ldap_get_entries makes attributes lowercase
-		$user_fields = $this->config['user_fields'];
 		foreach ($user_fields as &$field)
 		{
 			$field = strtolower($field);
@@ -177,15 +175,26 @@ class Ldap {
 
 		$users = array();
 		$users_names = array();
-		for ($i = 0; $i < $e['count']; $i++) {
-			$users[$e[$i][$user_fields['unique_id']][0]] = array(
-				"id" => $e[$i][$user_fields['id']][0],
-				"username" => $e[$i][$user_fields['username']][0],
-				"realname" => $e[$i][$user_fields['realname']][0],
-				"email" => isset($e[$i][$user_fields['email']][0]) ? $e[$i]['mail'][0] : null,
-				#"groups" => array()
-			);
-			$users_names[] = strtolower($e[$i][$user_fields['realname']][0]);
+		for ($i = 0; $i < $e['count']; $i++)
+		{
+			// map fields
+			$row = array();
+			foreach ($user_fields as $map => $to)
+			{
+				$to = strtolower($to); // ldap_get_entries makes attributes lowercase
+				if (isset($e[$i][$to]))
+				{
+					// NOTE: Only allowes for one value, there may be many
+					$row[$map] = $e[$i][$to][0];
+				}
+				else
+				{
+					$row[$map] = null;
+				}
+			}
+
+			$users_names[] = strtolower($row['realname']);
+			$users[] = new LdapUser($row, $this);
 		}
 
 		// sort by realname
