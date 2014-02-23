@@ -100,6 +100,20 @@ class LdapUser implements Auth\UserInterface {
 	protected $attributes;
 
 	/**
+	 * Attributes updated but not stored
+	 *
+	 * @var array
+	 */
+	protected $attributes_updated = array();
+
+	/**
+	 * New user object not stored?
+	 *
+	 * @var bool
+	 */
+	protected $is_new = false;
+
+	/**
 	 * Group list
 	 *
 	 * @var array
@@ -116,6 +130,8 @@ class LdapUser implements Auth\UserInterface {
 	{
 		$this->attributes = $attributes;
 		$this->ldap = $ldap;
+
+		$this->is_new = empty($attributes);
 	}
 
 	/**
@@ -196,6 +212,74 @@ class LdapUser implements Auth\UserInterface {
 	}
 
 	/**
+	 * Store changes to server, including new users
+	 */
+	public function store()
+	{
+		// TODO: we must bind with used having privileges for doing updates
+
+		// don't have username?
+		if (!isset($this->username))
+		{
+			throw new Exception("Can't store user without username.");
+		}
+
+		// new user?
+		if ($this->is_new)
+		{
+			if (static::find($this->username))
+			{
+				throw new Exception("User already exists.");
+			}
+
+			$skel = array(
+				'objectClass' => array(
+					'account',
+					'posixAccount'
+				),
+				'cn' => $this->username,
+				'uid' => $this->username,
+				'uidNumber' => $uid,
+				'gidNumber' => $gid,
+				'homeDirectory' => 'TODO',
+				'loginShell' => 'TODO',
+				'gecos' => $this->username,
+				'description' => 'User account'
+			);
+
+			// create this object
+			// TODO: complete this
+			ldap_add($this->ldap, $this->get_dn(), $skel);
+			$this->is_new = false;
+		}
+
+		if ($this->attributes_updated)
+		{
+			$new = array();
+			foreach ($this->attributes_updated as $field)
+			{
+				if (!isset($new[$field]))
+				{
+					$new[$field] = $this->attributes[$field];
+				}
+			}
+
+			ldap_mod_replace($this->ldap, $this->get_dn(), $new);
+			$this->attributes_updated = array();
+		}
+	}
+
+	/**
+	 * Get DN for the object
+	 *
+	 * @return string
+	 */
+	public function get_dn()
+	{
+		return $this->ldap->get_bind_dn($this->username);
+	}
+
+	/**
 	 * Dynamically access the user's attributes.
 	 *
 	 * @param  string  $key
@@ -216,6 +300,7 @@ class LdapUser implements Auth\UserInterface {
 	public function __set($key, $value)
 	{
 		$this->attributes[$key] = $value;
+		$this->attributes_updated[] = $key;
 	}
 
 	/**
