@@ -1,8 +1,19 @@
 <?php namespace HenriSt\OpenLdapAuth\Helpers;
 
 use HenriSt\OpenLdapAuth\LdapUser;
+use HenriSt\OpenLdapAuth\Helpers\GroupHelper;
+use HenriSt\OpenLdapAuth\Helpers\UserHelper;
 
 class Ldap {
+	/**
+	 * Create connection
+	 */
+	public static function forge()
+	{
+		$config = app()->config['auth']['ldap'];
+		return new static($config);
+	}
+
 	/**
 	 * LDAP-connection
 	 */
@@ -17,6 +28,20 @@ class Ldap {
 	 * Configuration
 	 */
 	public $config;
+
+	/**
+	 * UserHelper-object
+	 *
+	 * @var UserHelper
+	 */
+	public $userhelper;
+
+	/**
+	 * GroupHelper-object
+	 *
+	 * @var GroupHelper
+	 */
+	public $grouphelper;
 
 	/**
 	 * Initializer
@@ -57,16 +82,24 @@ class Ldap {
 	/**
 	 * Test binding to LDAP-server
 	 */
-	public function bind($user, $pass)
+	public function bind($user, $pass, $is_dn = false)
 	{
 		$this->connect();
-		$user_dn = $this->get_bind_dn($user);
+		$user_dn = $is_dn ? $user : $this->get_bind_dn($user);
 		if (@ldap_bind($this->conn, $user_dn, $pass))
 		{
 			$this->bound_as = $user;
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Bind as privileged user
+	 */
+	public function bindPrivileged()
+	{
+		return $this->bind($this->config['admin_dn'], $this->config['admin_pw'], true);
 	}
 
 	/**
@@ -79,34 +112,32 @@ class Ldap {
 	}
 
 	/**
+	 * Get user helper
+	 */
+	public function getUserHelper()
+	{
+		if (!isset($this->userhelper))
+			$this->userhelper = new UserHelper($this);
+		return $this->userhelper;
+	}
+
+	/**
+	 * Get group helper
+	 */
+	public function getGroupHelper()
+	{
+		if (!isset($this->grouphelper))
+			$this->grouphelper = new GroupHelper($this);
+		return $this->grouphelper;
+	}
+
+	/**
 	 * Get user details
 	 * @return array|null
 	 */
 	public function get_user_details($user)
 	{
 		throw new LdapException("Not to be used.");
-		$result = $this->get_users_by_usernames(array($user));
-		if ($result)
-		{
-			return $result[0];
-		}
-	}
-
-	/**
-	 * Get details about a user collection
-	 * @param array list of usernames
-	 * @return array(array|null user, ..)
-	 */
-	public function get_users_by_usernames(array $users, $extra_fields = array())
-	{
-		$list = array();
-		foreach ($users as $user)
-		{
-			$list[] = sprintf('(%s=%s)', $this->config['user_fields']['unique_id'], Ldap::escape_string($user));
-		}
-		$filter = sprintf('(|%s)', implode("", $list));
-
-		return $this->get_users($filter, $extra_fields);
 	}
 
 	/**
@@ -119,7 +150,7 @@ class Ldap {
 		$this->connect();
 
 		$search_by = sprintf('(%s=%s)', $this->config['group_fields']['members'], static::escape_string($user));
-		return $this->get_groups(false, $search_by);
+		return $this->getGroupHelper()->getByFilter($search_by, false);
 	}
 
 	/**
@@ -128,159 +159,8 @@ class Ldap {
 	 */
 	public function get_connection()
 	{
+		$this->connect();
 		return $this->conn;
-	}
-
-	/**
-	 * Get info about users (all by default)
-	 * Sorts the list by realnames
-	 *
-	 * @param string $search_by LDAP-string for searching, eg. (uid=*), defaults to all users
-	 * @param array $extra_fields
-	 * @return array of LdapUser
-	 */
-	public function get_users($search_by = null, $extra_fields = array())
-	{
-		$this->connect();
-
-		// handle search by
-		$search_by = empty($search_by) ? '(uid=*)' : $search_by;
-
-		// handle fields
-		$user_fields = $this->config['user_fields'];
-		$fields = array_values($user_fields);
-		if (!empty($extra_fields))
-		{
-			if (!is_array($extra_fields))
-			{
-				throw new Exception("Extra fields is not an array.");
-			}
-
-			$fields = array_merge($fields, $extra_fields);
-			foreach ($extra_fields as $field)
-			{
-				$user_fields[$field] = $field;
-			}
-		}
-
-		// retrieve info from LDAP
-		$r = ldap_search($this->conn, $this->config['user_dn'], $search_by, $fields);
-		$e = ldap_get_entries($this->conn, $r);
-
-		// ldap_get_entries makes attributes lowercase
-		foreach ($user_fields as &$field)
-		{
-			$field = strtolower($field);
-		}
-
-		$users = array();
-		$users_names = array();
-		for ($i = 0; $i < $e['count']; $i++)
-		{
-			// map fields
-			$row = array();
-			foreach ($user_fields as $map => $to)
-			{
-				$to = strtolower($to); // ldap_get_entries makes attributes lowercase
-				if (isset($e[$i][$to]))
-				{
-					// NOTE: Only allowes for one value, there may be many
-					$row[$map] = $e[$i][$to][0];
-				}
-				else
-				{
-					$row[$map] = null;
-				}
-			}
-
-			$users_names[] = strtolower($row['realname']);
-			$users[] = new LdapUser($row, $this);
-		}
-
-		// sort by realname
-		array_multisort($users_names, $users);
-
-		return $users;
-	}
-
-	/**
-	 * Get groups list
-	 * Sorts the list by group names
-	 *
-	 * @param bool $get_members Create list of members
-	 * @param string $search_by LDAP-string for searching, defaults to all groups
-	 * @return array
-	 */
-	public function get_groups($get_members = true, $search_by = null)
-	{
-		$this->connect();
-
-		// handle search by
-		$s = '(objectClass=posixGroup)';
-		if (!empty($search_by))
-		{
-			$s = sprintf('(&%s%s)', $s, $search_by);
-		}
-
-		$fields = array(
-			$this->config['group_fields']['unique_id'],
-			$this->config['group_fields']['id'],
-			$this->config['group_fields']['name']
-		);
-		if ($get_members)
-		{
-			$fields[] = $this->config['group_fields']['members'];
-		}
-
-		// retrieve info from LDAP
-		$r = ldap_search($this->conn, $this->config['group_dn'], $s, $fields);
-		$e = ldap_get_entries($this->conn, $r);
-
-		// ldap_get_entries makes attributes lowercase
-		$group_fields = $this->config['group_fields'];
-		foreach ($group_fields as &$field)
-		{
-			$field = strtolower($field);
-		}
-
-		$groups = array();
-		$groups_names = array();
-		for ($i = 0; $i < $e['count']; $i++)
-		{
-			// skip some groups
-			if (in_array($e[$i][$group_fields['unique_id']][0], $this->config['groups_ignore']))
-			{
-				continue;
-			}
-
-			$group = array(
-				"unique_id" => $e[$i][$group_fields['unique_id']][0],
-				"id" => $e[$i][$group_fields['id']][0],
-				"name" => $e[$i][$group_fields['name']][0]
-			);
-
-			if ($get_members)
-			{
-				$group['members'] = array();
-				$mf = $group_fields['members'];
-				if (!empty($e[$i][$mf]))
-				{
-					for ($j = 0; $j < $e[$i][$mf]['count']; $j++)
-					{
-						$uid = $e[$i][$mf][$j];
-						$group['members'][] = $uid;
-					}
-				}
-			}
-
-			$groups[$group['unique_id']] = $group;
-			$groups_names[] = $group['name'];
-		}
-
-		// sort by name
-		array_multisort($groups_names, $groups);
-
-		return $groups;
 	}
 
 	/**

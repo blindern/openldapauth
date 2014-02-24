@@ -2,90 +2,9 @@
 
 use Illuminate\Auth;
 use HenriSt\OpenLdapAuth\Helpers\Ldap;
+use HenriSt\OpenLdapAuth\Helpers\UserHelper;
 
-class LdapUser implements Auth\UserInterface {
-	protected static $ldap_s;
-
-	public static function init()
-	{
-		if (static::$ldap_s) return;
-
-		// set up LDAP
-		$config = app()->config['auth']['ldap'];
-		static::$ldap_s = new Ldap($config);
-	}
-
-	/**
-	 * Find user
-	 *
-	 * @return LdapUser
-	 */
-	public static function find($username)
-	{
-		static::init();
-		$users = static::$ldap_s->get_users_by_usernames(array($username));
-		if ($users[0]) return $users[0];
-	}
-
-	/**
-	 * Get all users
-	 *
-	 * @return array
-	 */
-	public static function all($get_groups = false)
-	{
-		static::init();
-
-		$users = static::$ldap_s->get_users();
-		
-		// get groups?
-		if ($get_groups)
-		{
-			static::fetchGroups($users);
-		}
-
-		return $users;
-	}
-
-	/**
-	 * Load groups for collection of users
-	 *
-	 * @param array users
-	 * @return void
-	 */
-	public static function fetchGroups($users)
-	{
-		static::init();
-
-		$list = array();
-		foreach ($users as $user)
-		{
-			$list[] = sprintf('(%s=%s)', static::$ldap_s->config['group_fields']['members'], Ldap::escape_string($user->username));
-		}
-
-		$groups = static::$ldap_s->get_groups(true, sprintf('(|%s)', implode("", $list)));
-
-		// reset groups data and make map
-		$map = array();
-		foreach ($users as $user)
-		{
-			$user->initGroups();
-			$map[$user->username] = $user;
-		}
-
-		// append groups to users
-		foreach ($groups as $group)
-		{
-			foreach ($group['members'] as $member)
-			{
-				if (isset($map[$member]))
-				{
-					$map[$member]->appendGroup($group);
-				}
-			}
-		}
-	}
-
+class LdapUser implements Auth\UserInterface, \JsonSerializable {
 	/**
 	 * LDAP-object
 	 * @var \HenriSt\OpenLdapAuth\Helpers\Ldap
@@ -121,6 +40,13 @@ class LdapUser implements Auth\UserInterface {
 	protected $groups;
 
 	/**
+	 * Helper
+	 *
+	 * @var UserHelper
+	 */
+	protected $helper;
+
+	/**
 	 * Create a new generic User object.
 	 *
 	 * @param  array  $attributes
@@ -130,7 +56,7 @@ class LdapUser implements Auth\UserInterface {
 	{
 		$this->attributes = $attributes;
 		$this->ldap = $ldap;
-
+		$this->helper = $this->ldap->getUserHelper();
 		$this->is_new = empty($attributes);
 	}
 
@@ -198,7 +124,7 @@ class LdapUser implements Auth\UserInterface {
 	/**
 	 * Initialize groups array
 	 */
-	protected function initGroups()
+	public function initGroups()
 	{
 		$this->groups = array();
 	}
@@ -206,7 +132,7 @@ class LdapUser implements Auth\UserInterface {
 	/**
 	 * Assign group to user internally
 	 */
-	protected function appendGroup($group)
+	public function appendGroup($group)
 	{
 		$this->groups[] = $group;
 	}
@@ -216,7 +142,7 @@ class LdapUser implements Auth\UserInterface {
 	 */
 	public function store()
 	{
-		// TODO: we must bind with used having privileges for doing updates
+		$this->ldap->bindPrivileged();
 
 		// don't have username?
 		if (!isset($this->username))
@@ -227,7 +153,7 @@ class LdapUser implements Auth\UserInterface {
 		// new user?
 		if ($this->is_new)
 		{
-			if (static::find($this->username))
+			if ($this->helper->find($this->username))
 			{
 				throw new Exception("User already exists.");
 			}
@@ -239,17 +165,16 @@ class LdapUser implements Auth\UserInterface {
 				),
 				'cn' => $this->username,
 				'uid' => $this->username,
-				'uidNumber' => $uid,
-				'gidNumber' => $gid,
-				'homeDirectory' => 'TODO',
-				'loginShell' => 'TODO',
+				'uidNumber' => $this->helper->getNextID(),
+				//'gidNumber' => $this->ldap->config['default_gid'],
+				'homeDirectory' => '/home/'.$this->username,
+				'loginShell' => '/usr/sbin/nologin',
 				'gecos' => $this->username,
 				'description' => 'User account'
 			);
 
 			// create this object
-			// TODO: complete this
-			ldap_add($this->ldap, $this->get_dn(), $skel);
+			ldap_add($this->ldap->get_connection(), $this->get_dn(), $skel);
 			$this->is_new = false;
 		}
 
@@ -264,7 +189,7 @@ class LdapUser implements Auth\UserInterface {
 				}
 			}
 
-			ldap_mod_replace($this->ldap, $this->get_dn(), $new);
+			ldap_mod_replace($this->ldap->get_connection(), $this->get_dn(), $new);
 			$this->attributes_updated = array();
 		}
 	}
@@ -361,5 +286,15 @@ class LdapUser implements Auth\UserInterface {
 	public function isSame(LdapUser $user)
 	{
 		return $this->username == $user->username;
+	}
+
+	/**
+	 * Make array for JSON
+	 *
+	 * @return array
+	 */
+	public function jsonSerialize()
+	{
+		return $this->toArray();
 	}
 }
