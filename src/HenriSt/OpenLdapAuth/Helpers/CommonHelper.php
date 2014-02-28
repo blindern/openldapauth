@@ -19,13 +19,23 @@ abstract class CommonHelper {
 	}
 
 	/**
+	 * Get all objects
+	 *
+	 * @return array
+	 */
+	public function all()
+	{
+		return $this->getByFilter();
+	}
+
+	/**
 	 * Find one
 	 *
 	 * @return self
 	 */
-	public function find($name, $depth = 0)
+	public function find($name)
 	{
-		$objs = $this->getByNames(array($name), $depth);
+		$objs = $this->getByNames(array($name));
 		if (isset($objs[0])) return $objs[0];
 	}
 
@@ -34,7 +44,7 @@ abstract class CommonHelper {
 	 * @param array list of names
 	 * @return array(array|null object, ..)
 	 */
-	public function getByNames(array $names, $depth = 0)
+	public function getByNames(array $names)
 	{
 		$list = array();
 		foreach ($names as $name)
@@ -43,7 +53,7 @@ abstract class CommonHelper {
 		}
 		$filter = sprintf('(|%s)', implode("", $list));
 
-		return $this->getByFilter($filter, $depth);
+		return $this->getByFilter($filter);
 	}
 
 	/**

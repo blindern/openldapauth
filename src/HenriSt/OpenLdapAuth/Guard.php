@@ -12,7 +12,7 @@ class Guard extends \Illuminate\Auth\Guard {
 	public function member($group, $allow_superadmin = true)
 	{
 		$user = $this->user();
-		if ($user && $user->in_group($group, $allow_superadmin))
+		if ($user && $user->inGroup($group, $allow_superadmin))
 		{
 			return true;
 		}

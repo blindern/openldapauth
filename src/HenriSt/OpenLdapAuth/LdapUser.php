@@ -88,7 +88,7 @@ class LdapUser implements Auth\UserInterface, \JsonSerializable {
 	 * @param boolean $refresh Reload cache?
 	 * @return array of groups
 	 */
-	public function groups($refresh = false)
+	/*public function groups($refresh = false)
 	{
 		if ($refresh || is_null($this->groups))
 		{
@@ -96,7 +96,7 @@ class LdapUser implements Auth\UserInterface, \JsonSerializable {
 		}
 		
 		return $this->groups;
-	}
+	}*/
 
 	/**
 	 * Check if user is in a group
@@ -105,7 +105,7 @@ class LdapUser implements Auth\UserInterface, \JsonSerializable {
 	 * @param boolean $superadmin Allow superadmin (in group if superadmin)
 	 * @return boolean
 	 */
-	public function in_group($group, $allow_superadmin = true)
+	/*public function in_group($group, $allow_superadmin = true)
 	{
 		$groups = $this->groups();
 
@@ -119,7 +119,7 @@ class LdapUser implements Auth\UserInterface, \JsonSerializable {
 		}
 
 		return false;
-	}
+	}*/
 
 	/**
 	 * Initialize groups array
@@ -254,21 +254,23 @@ class LdapUser implements Auth\UserInterface, \JsonSerializable {
 	 * Convert to array
 	 *
 	 * @param array Fields to ignore
+	 * @param int Expand group? (0=no, 1=only names, 2=structure without members, 3=structure with members)
 	 * @return array
 	 */
-	public function toArray(array $except = array())
+	public function toArray(array $except = array(), $expand_groups = 1)
 	{
 		$d = $this->attributes;
 		foreach ($except as $e)
 			unset($d[$e]);
 
 		// groups?
-		if ($this->groups)
+		if (!is_null($this->groups) && $expand_groups > 0)
 		{
 			$groups = array();
 			foreach ($this->groups as $group)
 			{
-				$groups[] = $group['name'];
+				$except = $expand_groups < 3 ? array("members") : array();
+				$groups[] = $expand_groups != 1 ? $group->toArray($except) : $group->name;
 			}
 
 			return array_merge($d, array("groups" => $groups));

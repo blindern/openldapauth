@@ -33,6 +33,20 @@ class LdapGroup implements \JsonSerializable {
 	protected $is_new = false;
 
 	/**
+	 * Members of the group
+	 *
+	 * @var array for username strings
+	 */
+	protected $members;
+
+	/**
+	 * Members of the group (objects)
+	 *
+	 * @var array of users
+	 */
+	protected $memberObjs;
+
+	/**
 	 * Helper
 	 *
 	 * @var GroupHelper
@@ -115,6 +129,56 @@ class LdapGroup implements \JsonSerializable {
 		}
 	}
 
+	public function noMembers()
+	{
+		$this->members = null;
+	}
+
+	/**
+	 * Set list of members
+	 */
+	public function setMembers($list)
+	{
+		$this->members = $list;
+	}
+
+	/**
+	 * Get list of members
+	 */
+	public function getMembers()
+	{
+		if (is_null($this->members))
+		{
+			// not loaded
+			throw new Exception("Not implemented");
+		}
+
+		return (array) $this->members;
+	}
+
+	public function getMemberObjs()
+	{
+		if (is_null($this->memberObjs))
+		{
+			$this->helper->loadUsers($this);
+		}
+
+		return (array) $this->memberObjs;
+	}
+
+	public function clearMemberObjs()
+	{
+		$this->memberObjs = null;
+	}
+
+	public function addMemberObj(LdapUser $user)
+	{
+		if (is_null($this->memberObjs))
+			$this->memberObjs = array();
+
+		$this->memberObjs[] = $user;
+	}
+
 	/**
 	 * Get DN for the object
 	 *
@@ -176,12 +240,37 @@ class LdapGroup implements \JsonSerializable {
 	}
 
 	/**
+	 * Array-representation
+	 *
+	 * @param array field to ignore
+	 * @param int depth (0 = no user details, 1 = usernames only, 2 = user objects)
+	 */
+	public function toArray(array $except = array())
+	{
+		$d = $this->attributes;
+		foreach ($except as $e)
+			unset($d[$e]);
+
+		// members
+		if (!is_null($this->memberObjs) && !in_array("members", $except))
+		{
+			$d = array_merge($d, array("members" => $this->getMemberObjs()));
+		}
+		elseif (!is_null($this->members) && !in_array("members", $except))
+		{
+			$d = array_merge($d, array("members" => $this->getMembers()));
+		}
+
+		return $d;
+	}
+
+	/**
 	 * Make array for JSON
 	 *
 	 * @return array
 	 */
 	public function jsonSerialize()
 	{
-		return $this->attributes;
+		return $this->toArray();
 	}
 }

@@ -9,24 +9,6 @@ class UserHelper extends CommonHelper {
 	protected $objectClass = 'posixAccount';
 
 	/**
-	 * Get all users
-	 *
-	 * @return array
-	 */
-	public function all($get_groups = false)
-	{
-		$users = $this->getByFilter();
-		
-		// get groups?
-		if ($get_groups)
-		{
-			$this->fetchGroups($users);
-		}
-
-		return $users;
-	}
-
-	/**
 	 * Load groups for collection of users
 	 *
 	 * @param array users
@@ -53,7 +35,7 @@ class UserHelper extends CommonHelper {
 		// append groups to users
 		foreach ($groups as $group)
 		{
-			foreach ($group['members'] as $member)
+			foreach ($group->getMembers() as $member)
 			{
 				if (isset($map[$member]))
 				{
@@ -68,10 +50,9 @@ class UserHelper extends CommonHelper {
 	 * Sorts the list by realnames
 	 *
 	 * @param string $search_by LDAP-string for searching, eg. (uid=*), defaults to all users
-	 * @param array $extra_fields
 	 * @return array of LdapUser
 	 */
-	public function getByFilter($search_by = null, $extra_fields = array())
+	public function getByFilter($search_by = null)
 	{
 		// handle search by
 		$search_by = empty($search_by) ? '(uid=*)' : $search_by;
@@ -79,11 +60,11 @@ class UserHelper extends CommonHelper {
 		// handle fields
 		$user_fields = $this->ldap->config['user_fields'];
 		$fields = array_values($user_fields);
-		if (!empty($extra_fields))
+		/*if (!empty($extra_fields))
 		{
 			if (!is_array($extra_fields))
 			{
-				throw new Exception("Extra fields is not an array.");
+				throw new \Exception("Extra fields is not an array.");
 			}
 
 			$fields = array_merge($fields, $extra_fields);
@@ -91,7 +72,7 @@ class UserHelper extends CommonHelper {
 			{
 				$user_fields[$field] = $field;
 			}
-		}
+		}*/
 
 		// retrieve info from LDAP
 		$r = ldap_search($this->ldap->get_connection(), $this->ldap->config['user_dn'], $search_by, $fields);

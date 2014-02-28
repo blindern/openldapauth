@@ -9,25 +9,54 @@ class GroupHelper extends CommonHelper {
 	protected $objectClass = 'posixGroup';
 
 	/**
-	 * Get all groups
-	 *
-	 * @return array
+	 * Load users for groups
 	 */
-	public function all()
+	public function loadUsers($groups)
 	{
-		return $this->getByFilter(null, 0);
+		if (!is_array($groups)) $groups = array($groups);
+
+		// get users
+		$names = array();
+		foreach ($groups as $group)
+		{
+			foreach ($group->getMembers() as $username)
+			{
+				$names[] = $username;
+			}
+		}
+		$names = array_unique($names);
+		$users = $this->ldap->getUserHelper()->getByNames($names);
+
+		// create username map
+		$map = array();
+		foreach ($users as $user)
+		{
+			$map[$user->unique_id] = $user;
+		}
+
+		// add to groups
+		foreach ($groups as $group)
+		{
+			$group->clearMemberObjs();
+			foreach ($group->getMembers() as $username)
+			{
+				if (isset($map[$username]))
+				{
+					$group->addMemberObj($map[$username]);
+				}
+			}
+		}
 	}
-	
+
 	/**
 	 * Get groups list
 	 * Sorts the list by group names
 	 *
 	 * @param string $search_by LDAP-string for searching, eg. (cn=admin), defaults to all groups
-	 * @param bool $depth Create list of members if 1
 	 * @return array
 	 */
 	// get_groups
-	public function getByFilter($search_by = null, $depth = 1)
+	public function getByFilter($search_by = null)
 	{
 		// handle search by
 		$s = '(objectClass=posixGroup)';
@@ -40,13 +69,10 @@ class GroupHelper extends CommonHelper {
 			$this->field('unique_id'),
 			$this->field('id'),
 			$this->field('name'),
-			$this->field('description')
+			$this->field('description'),
+			$this->field('members')
 		);
-		if ($depth >= 1)
-		{
-			$fields[] = $this->ldap->config['group_fields']['members'];
-		}
-
+		
 		// retrieve info from LDAP
 		$r = ldap_search($this->ldap->get_connection(), $this->ldap->config['group_dn'], $s, $fields);
 		$e = ldap_get_entries($this->ldap->get_connection(), $r);
@@ -68,29 +94,29 @@ class GroupHelper extends CommonHelper {
 				continue;
 			}
 
-			$group = array(
+			$group = new LdapGroup(array(
 				"unique_id" => $e[$i][$group_fields['unique_id']][0],
 				"id" => $e[$i][$group_fields['id']][0],
 				"name" => $e[$i][$group_fields['name']][0],
 				"description" => isset($e[$i][$group_fields['description']]) ? $e[$i][$group_fields['description']][0] : null,
-			);
+			), $this->ldap);
 
-			if ($depth >= 1)
+			// members
+			$members = array();
+			$mf = $group_fields['members'];
+			if (!empty($e[$i][$mf]))
 			{
-				$group['members'] = array();
-				$mf = $group_fields['members'];
-				if (!empty($e[$i][$mf]))
+				for ($j = 0; $j < $e[$i][$mf]['count']; $j++)
 				{
-					for ($j = 0; $j < $e[$i][$mf]['count']; $j++)
-					{
-						$uid = $e[$i][$mf][$j];
-						$group['members'][] = $uid;
-					}
+					$uid = $e[$i][$mf][$j];
+					$members[] = $uid;
 				}
 			}
 
+			$group->setMembers($members);
+			
 			$groups[] = $group;
-			$groups_names[] = $group['name'];
+			$groups_names[] = $group->name;
 		}
 
 		// sort by name
