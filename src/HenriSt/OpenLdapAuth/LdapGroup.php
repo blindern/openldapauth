@@ -179,6 +179,11 @@ class LdapGroup implements \JsonSerializable {
 		$this->memberObjs[] = $user;
 	}
 
+	public function sortMemberObjs($sort_list)
+	{
+		array_multisort($sort_list, $this->memberObjs);
+	}
+
 	/**
 	 * Get DN for the object
 	 *

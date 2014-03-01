@@ -14,9 +14,10 @@ class UserHelper extends CommonHelper {
 	 * @param array users
 	 * @return void
 	 */
-	public function fetchGroups($users)
+	public function loadGroups($users)
 	{
 		$list = array();
+		if (!is_array($users)) $users = array($users);
 		foreach ($users as $user)
 		{
 			$list[] = sprintf('(%s=%s)', $this->ldap->config['group_fields']['members'], Ldap::escape_string($user->username));

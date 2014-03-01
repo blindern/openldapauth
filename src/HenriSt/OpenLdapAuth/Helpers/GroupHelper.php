@@ -37,14 +37,18 @@ class GroupHelper extends CommonHelper {
 		// add to groups
 		foreach ($groups as $group)
 		{
+			$realnames = array();
 			$group->clearMemberObjs();
 			foreach ($group->getMembers() as $username)
 			{
 				if (isset($map[$username]))
 				{
-					$group->addMemberObj($map[$username]);
+					$realnames[] = $map[$username]->realname;
+					$group->addMemberObj($map[$username]); // we actually sort twice, once when fetching users, optimize?
 				}
 			}
+
+			if ($realnames) $group->sortMemberObjs($realnames);
 		}
 	}
 
